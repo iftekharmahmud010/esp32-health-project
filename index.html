@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BioSense AI — ESP32 Smart Health &amp; Face Diagnostics</title>
+  <link rel="stylesheet" href="styles.css" />
+  <!-- SheetJS library for generating Excel (.xlsx) reports -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+
+  <!-- Firebase App & Services (v9 compat for easy browser usage) -->
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+  <script src="firebase-config.js"></script>
+
+  <!-- Load Face-API.js from CDN for real-time face & expression detection -->
+  <script defer src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.js"></script>
+  <script defer src="app.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-icon">✚</div>
+      <div>
+        <h1>BioSense AI</h1>
+        <span class="subtitle">ESP32 Smart Health (OLED + MAX30102 + AD8232 ECG + TMP36) &amp; Facial Diagnostics</span>
+      </div>
+    </div>
+    <div class="header-controls">
+      <div class="account-chip" id="headerAccountChip">
+        <img id="headerAvatarImg" class="header-avatar hidden" alt="Profile" />
+        <span id="accountBadge">Guest Session</span>
+      </div>
+      <div id="espStatusBadge" class="badge badge-esp-disconnected">ESP32: Not Connected</div>
+      <button id="openEspCodeModalBtn" class="btn btn-esp btn-sm">
+        ⚡ ESP32 Code &amp; Wiring
+      </button>
+      <button id="authBtn" class="btn btn-primary btn-sm">Sign In / Register</button>
+      <button id="reopenOnboardingBtn" class="btn btn-secondary btn-sm" title="Edit Account & Health Questionnaire">
+        Health Questionnaire
+      </button>
+    </div>
+  </header>
+
+  <!-- Firebase Authentication Modal -->
+  <div id="authModal" class="modal-overlay hidden">
+    <div class="modal-card">
+      <div class="modal-header-row">
+        <div>
+          <h2 id="authModalTitle">Sign In to BioSense AI</h2>
+          <p>Access your stored cloud health records and ESP32 telemetry history.</p>
+        </div>
+        <button id="closeAuthModalBtn" class="btn btn-secondary btn-sm">✕ Close</button>
+      </div>
+      <form id="authForm" class="onboarding-form">
+        <div class="form-group">
+          <label for="authEmail">Email Address</label>
+          <input type="email" id="authEmail" required placeholder="you@example.com" />
+        </div>
+        <div class="form-group">
+          <label for="authPassword">Password</label>
+          <input type="password" id="authPassword" required minlength="6" placeholder="At least 6 characters" />
+        </div>
+        <div id="authErrorMsg" class="auth-error-msg hidden"></div>
+        <div class="modal-actions" style="justify-content: space-between; align-items: center;">
+          <a href="#" id="toggleAuthModeLink" class="toggle-link">Don't have an account? Register here</a>
+          <button type="submit" id="authSubmitBtn" class="btn btn-primary">Sign In</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Step 1: Account Creation & Health Questionnaire Modal -->
+  <div id="onboardingModal" class="modal-overlay">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h2>Create Your Health Account</h2>
+        <p>Answer a few quick health questions, then take your live AI diagnostic profile picture.</p>
+      </div>
+      <form id="onboardingForm" class="onboarding-form">
+        <div class="form-row">
+          <div class="form-group">
+            <label for="patientName">Full Name *</label>
+            <input type="text" id="patientName" required placeholder="e.g., Alex Rahman" />
+          </div>
+          <div class="form-group">
+            <label for="patientAge">Age *</label>
+            <input type="number" id="patientAge" required min="1" max="120" placeholder="25" />
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label for="patientGender">Gender</label>
+            <select id="patientGender">
+              <option value="Not specified">Prefer not to say</option>
+              <option value="Male">Male</option>
+              <option value="Female">Female</option>
+              <option value="Other">Other</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="sleepHours">Hours of Sleep Last Night *</label>
+            <select id="sleepHours" required>
+              <option value="7-8">7–8 hours (Normal)</option>
+              <option value="5-6">5–6 hours (Mild deprivation)</option>
+              <option value="<5">Less than 5 hours (High fatigue)</option>
+              <option value=">8">More than 8 hours</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>Do you currently experience any of these symptoms? (Select all that apply)</label>
+          <div class="checkbox-grid">
+            <label class="checkbox-item">
+              <input type="checkbox" name="symptoms" value="Fever / Feeling Hot" />
+              <span>Fever / Feeling Hot</span>
+            </label>
+            <label class="checkbox-item">
+              <input type="checkbox" name="symptoms" value="Headache / Dizziness" />
+              <span>Headache / Dizziness</span>
+            </label>
+            <label class="checkbox-item">
+              <input type="checkbox" name="symptoms" value="Fatigue / Weakness" />
+              <span>Fatigue / Weakness</span>
+            </label>
+            <label class="checkbox-item">
+              <input type="checkbox" name="symptoms" value="Stress / Low Mood" />
+              <span>Stress / Low Mood</span>
+            </label>
+            <label class="checkbox-item">
+              <input type="checkbox" name="symptoms" value="Dehydration / Dry Skin" />
+              <span>Dehydration / Dry Skin</span>
+            </label>
+            <label class="checkbox-item">
+              <input type="checkbox" name="symptoms" value="None" />
+              <span>No Symptoms (Feeling Fine)</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="medicalHistory">Known Medical Conditions (Optional)</label>
+          <input type="text" id="medicalHistory" placeholder="e.g., Hypertension, Anemia, Allergies, None" />
+        </div>
+
+        <div class="modal-actions">
+          <button type="button" id="skipOnboardingBtn" class="btn btn-secondary">Skip for Now</button>
+          <button type="submit" class="btn btn-primary">Create Account &amp; Open Camera →</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ESP32 Firmware & Pinout Modal -->
+  <div id="espCodeModal" class="modal-overlay hidden">
+    <div class="modal-card modal-card-wide">
+      <div class="modal-header-row">
+        <div>
+          <h2>ESP32 Firmware &amp; Hardware Wiring Guide</h2>
+          <p>Supports SSD1306 Mini OLED, MAX30102 Oximeter, AD8232 ECG Sensor, and TMP36 Temperature Sensor.</p>
+        </div>
+        <button id="closeEspCodeModalBtn" class="btn btn-secondary btn-sm">✕ Close</button>
+      </div>
+
+      <div class="wiring-grid">
+        <div class="wiring-box">
+          <h4>1. Mini OLED (SSD1306 I2C)</h4>
+          <p><code>VCC → 3.3V</code> | <code>GND → GND</code></p>
+          <p><code>SDA → GPIO 21</code> | <code>SCL → GPIO 22</code></p>
+        </div>
+        <div class="wiring-box">
+          <h4>2. MAX30102 Oximeter (I2C)</h4>
+          <p><code>VIN → 3.3V</code> | <code>GND → GND</code></p>
+          <p><code>SDA → GPIO 21</code> | <code>SCL → GPIO 22</code></p>
+        </div>
+        <div class="wiring-box">
+          <h4>3. AD8232 ECG Sensor</h4>
+          <p><code>3.3V → 3.3V</code> | <code>GND → GND</code></p>
+          <p><code>OUTPUT → GPIO 34</code> | <code>LO+ → 32</code> | <code>LO- → 33</code></p>
+        </div>
+        <div class="wiring-box">
+          <h4>4. TMP36 Temp Sensor</h4>
+          <p><code>+Vs → 3.3V</code> | <code>GND → GND</code></p>
+          <p><code>Vout (Middle Pin) → GPIO 35</code></p>
+        </div>
+      </div>
+
+      <div class="code-header-bar">
+        <span>File: <code>esp32_health_firmware/esp32_health_firmware.ino</code></span>
+        <button id="copyEspCodeBtn" class="btn btn-primary btn-sm">📋 Copy Arduino Code</button>
+      </div>
+      <pre id="espCodePre" class="code-block"></pre>
+    </div>
+  </div>
+
+  <!-- Main Dashboard -->
+  <main class="dashboard">
+    <!-- Left Column: Live Camera, Profile Snapshot & ESP32 ECG/OLED -->
+    <section class="camera-section">
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <h2>Live AI Facial &amp; Disease Scanner</h2>
+            <p class="text-muted">Watch your live thresholds (Happy/Sad %, Redness, Fatigue) in the square box and click <strong>"Take Profile Picture"</strong> to set your account photo.</p>
+          </div>
+          <div class="camera-actions">
+            <button id="toggleCameraBtn" class="btn btn-primary">Start Camera</button>
+            <button id="takeProfilePicBtn" class="btn btn-accent" disabled>📸 Take Profile Picture</button>
+            <button id="downloadExcelBtn" class="btn btn-success" disabled>📊 Export Excel (.xlsx)</button>
+            <button id="captureSnapshotBtn" class="btn btn-secondary" disabled>Save JSON</button>
+          </div>
+        </div>
+
+        <div class="viewport-wrapper" id="viewportWrapper">
+          <video id="webcamVideo" autoplay muted playsinline></video>
+          <canvas id="overlayCanvas"></canvas>
+
+          <!-- Camera Flash Effect when taking Profile Picture -->
+          <div id="cameraFlash" class="camera-flash"></div>
+
+          <!-- Placeholder shown when camera is off -->
+          <div id="cameraPlaceholder" class="camera-placeholder">
+            <div class="camera-icon">📷</div>
+            <h3>Camera Access Required</h3>
+            <p>Click <strong>"Start Camera"</strong> or complete account creation to begin real-time face &amp; disease detection.</p>
+          </div>
+
+          <!-- Floating Live HUD Banner inside Video -->
+          <div id="liveHudBanner" class="live-hud-banner hidden">
+            <span class="pulse-dot"></span>
+            <span id="hudStatusText">Initializing AI Face Model...</span>
+          </div>
+        </div>
+
+        <!-- Primary Live Detection Pills directly under camera -->
+        <div class="live-pills-bar">
+          <div class="pill-box">
+            <span class="pill-label">Face Tracked</span>
+            <strong id="faceDetectedValue" class="pill-value">Waiting...</strong>
+          </div>
+          <div class="pill-box">
+            <span class="pill-label">Mood &amp; Threshold %</span>
+            <strong id="moodValue" class="pill-value">—</strong>
+          </div>
+          <div class="pill-box">
+            <span class="pill-label">Facial Health Condition</span>
+            <strong id="conditionValue" class="pill-value">—</strong>
+          </div>
+          <div class="pill-box">
+            <span class="pill-label">Vitality Score</span>
+            <strong id="vitalityValue" class="pill-value">—</strong>
+          </div>
+        </div>
+      </div>
+
+      <!-- Guided ESP32 Diagnostic Inspection Workflow Banner -->
+      <div id="diagnosticWorkflowCard" class="card workflow-card hidden">
+        <div class="workflow-header">
+          <div class="workflow-status-indicator">
+            <span class="pulse-ring"></span>
+            <h3 id="workflowStepTitle">Step 1: ECG Sensor Check</h3>
+          </div>
+          <span id="workflowBadge" class="tag tag-accent">Guided Checkup Active</span>
+        </div>
+        <p id="workflowInstructionText" class="workflow-instruction">
+          Please attach/connect your hand to the AD8232 ECG sensor pads.
+        </p>
+        <div class="workflow-progress-track">
+          <div id="workflowProgressBar" class="workflow-progress-fill" style="width: 25%"></div>
+        </div>
+        <div class="workflow-actions">
+          <span id="workflowTimerHint" class="workflow-hint">Analyzing vitals...</span>
+          <button id="workflowNextBtn" class="btn btn-primary btn-sm">Confirm &amp; Proceed →</button>
+        </div>
+      </div>
+
+      <!-- ESP32 AD8232 Live ECG Monitor + Mini OLED Screen Mirror -->
+      <div class="card esp-live-row">
+        <div class="ecg-panel">
+          <div class="card-header-compact">
+            <div>
+              <h3>AD8232 Live ECG Waveform (GPIO 34)</h3>
+              <span class="text-muted small-text">Single-lead Electrocardiogram real-time trace from ESP32</span>
+            </div>
+            <span id="ecgLeadBadge" class="tag">Leads: OK</span>
+          </div>
+          <canvas id="ecgCanvas" width="520" height="130"></canvas>
+        </div>
+
+        <div class="oled-panel">
+          <div class="card-header-compact">
+            <h3>ESP32 Mini OLED (128×64)</h3>
+            <span class="tag tag-ai">I2C 0x3C</span>
+          </div>
+          <!-- Realistic 128x64 SSD1306 Mini OLED Display Mirror -->
+          <div class="oled-bezel">
+            <div class="oled-pins"><span>GND</span><span>VCC</span><span>SCL</span><span>SDA</span></div>
+            <canvas id="oledCanvas" width="256" height="128"></canvas>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Right Column: Account Profile Picture, Disease Thresholds & ESP32 Sensors -->
+    <aside class="diagnostics-sidebar">
+      <!-- Patient Profile Summary with Captured Profile Picture & Thresholds -->
+      <div class="card">
+        <div class="card-header-compact">
+          <h3>Patient Account Profile</h3>
+          <span id="profileStatusTag" class="tag">Active</span>
+        </div>
+
+        <div class="profile-main-layout">
+          <div class="profile-avatar-box">
+            <img id="profileAvatarImg" class="profile-avatar-img hidden" alt="Captured Profile Picture" />
+            <div id="profileAvatarPlaceholder" class="profile-avatar-placeholder">
+              <span>👤</span>
+              <small>Take Photo in Camera</small>
+            </div>
+          </div>
+
+          <div class="profile-details">
+            <div id="patientSummaryGrid" class="profile-grid">
+              <div><span class="label">Name:</span> <strong id="summaryName">Guest User</strong></div>
+              <div><span class="label">Age / Gender:</span> <strong id="summaryAgeGender">—</strong></div>
+              <div><span class="label">Sleep:</span> <strong id="summarySleep">—</strong></div>
+              <div><span class="label">Symptoms:</span> <strong id="summarySymptoms">None</strong></div>
+            </div>
+
+            <div id="capturedThresholdsBox" class="captured-thresholds-box">
+              <span class="snap-title">📸 Captured Picture Thresholds:</span>
+              <p id="capturedThresholdsText" class="text-muted small-text">
+                No profile photo captured yet. Open camera &amp; click "Take Profile Picture".
+              </p>
+            </div>
+
+            <!-- Stored Full Diagnostic Record -->
+            <div id="accountDiagnosticRecordBox" class="account-diagnostic-box hidden">
+              <span class="snap-title">📑 Complete Health Record (Saved):</span>
+              <div class="stored-records-summary">
+                <div class="stat-pill"><span class="k">ECG BPM:</span> <strong id="recEcgBpm">--</strong></div>
+                <div class="stat-pill"><span class="k">SpO2:</span> <strong id="recSpo2">--</strong></div>
+                <div class="stat-pill"><span class="k">Temp:</span> <strong id="recTemp">--</strong></div>
+                <div class="stat-pill"><span class="k">Vitality:</span> <strong id="recVitality">--</strong></div>
+              </div>
+              <p id="excelDownloadNotice" class="excel-notice">
+                ✅ All data stored and ready for Excel export.
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Emotion & Facial Health Breakdown -->
+      <div class="card">
+        <div class="card-header-compact">
+          <h3>Live Face &amp; Disease Thresholds</h3>
+          <span class="tag tag-ai">Real-Time ROI</span>
+        </div>
+
+        <div class="metrics-list">
+          <div class="metric-item">
+            <div class="metric-top">
+              <span>Happy Expression Threshold</span>
+              <strong id="happyLabel">0%</strong>
+            </div>
+            <div class="progress-bar"><div id="happyBar" class="progress-fill" style="width: 0%"></div></div>
+          </div>
+
+          <div class="metric-item">
+            <div class="metric-top">
+              <span>Sad / Low Mood Threshold</span>
+              <strong id="sadLabel">0%</strong>
+            </div>
+            <div class="progress-bar"><div id="sadBar" class="progress-fill fill-info" style="width: 0%"></div></div>
+          </div>
+
+          <div class="metric-item">
+            <div class="metric-top">
+              <span>Facial Redness / Flush (Fever / Inflammation)</span>
+              <strong id="rednessLabel">Normal (0%)</strong>
+            </div>
+            <div class="progress-bar"><div id="rednessBar" class="progress-fill fill-warn" style="width: 0%"></div></div>
+          </div>
+
+          <div class="metric-item">
+            <div class="metric-top">
+              <span>Under-Eye Fatigue / Exhaustion Sign</span>
+              <strong id="fatigueLabel">Low (0%)</strong>
+            </div>
+            <div class="progress-bar"><div id="fatigueBar" class="progress-fill fill-info" style="width: 0%"></div></div>
+          </div>
+
+          <div class="metric-item">
+            <div class="metric-top">
+              <span>Skin Pallor / Anemia &amp; Dehydration Risk</span>
+              <strong id="pallorLabel">Normal (0%)</strong>
+            </div>
+            <div class="progress-bar"><div id="pallorBar" class="progress-fill fill-danger" style="width: 0%"></div></div>
+          </div>
+        </div>
+
+        <div id="diagnosticAlertBox" class="diagnostic-alert">
+          <strong>AI Screening Note:</strong> Waiting for face in the square detection box...
+        </div>
+      </div>
+
+      <!-- ESP32 Hardware Sensors Card (MAX30102 + TMP36 + AD8232 + OLED) -->
+      <div class="card esp-card">
+        <div class="card-header-compact">
+          <div>
+            <h3>ESP32 Sensor Telemetry</h3>
+            <span class="text-muted small-text">Wireless Wi-Fi / USB (MAX30102, TMP36, AD8232, OLED)</span>
+          </div>
+          <div class="conn-buttons">
+            <button id="connectWifiEspBtn" class="btn btn-sm btn-primary">📶 Wi-Fi Connect</button>
+            <button id="connectEspBtn" class="btn btn-sm btn-esp">🔌 USB Serial</button>
+          </div>
+        </div>
+
+        <div id="wifiIpInputRow" class="wifi-input-row hidden">
+          <input type="text" id="espIpAddressInput" placeholder="Enter ESP32 IP e.g. 192.168.1.100" />
+          <button id="confirmWifiConnectBtn" class="btn btn-sm btn-accent">Connect</button>
+        </div>
+
+        <div class="esp-vitals-grid">
+          <div class="vital-tile">
+            <span class="vital-name">MAX30102 Heart Rate</span>
+            <strong id="espHeartRate" class="vital-reading">-- BPM</strong>
+          </div>
+          <div class="vital-tile">
+            <span class="vital-name">MAX30102 Oximeter SpO2</span>
+            <strong id="espSpo2" class="vital-reading">-- %</strong>
+          </div>
+          <div class="vital-tile">
+            <span class="vital-name">TMP36 Temperature</span>
+            <strong id="espTemp" class="vital-reading">-- °C</strong>
+          </div>
+          <div class="vital-tile">
+            <span class="vital-name">OLED / Serial Sync</span>
+            <strong id="espPacket" class="vital-reading-sm">IDLE</strong>
+          </div>
+        </div>
+      </div>
+    </aside>
+  </main>
+</body>
+</html>
