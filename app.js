@@ -1,5 +1,11 @@
 // BioSense AI — ESP32 Smart Health (OLED + MAX30102 + AD8232 + TMP36) & Facial Diagnostic System
 
+document.addEventListener('DOMContentLoaded', () => {
+  initBioSenseApp();
+});
+
+function initBioSenseApp() {
+
 const state = {
   patient: {
     name: 'Guest User',
@@ -1604,3 +1610,4 @@ copyEspCodeBtn.addEventListener('click', async () => {
     copyEspCodeBtn.textContent = '📋 Copy Arduino Code';
   }, 2000);
 });
+} // End of initBioSenseApp
